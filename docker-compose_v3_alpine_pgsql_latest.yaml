@@ -228,7 +228,7 @@ services:
   image: zabbix/zabbix-web-nginx-pgsql:alpine-6.4-latest
   ports:
    - "100.255.255.2:80:8080"
-   - "localhost:81:8080"
+   - "127.0.0.1:81:8080"
    - "127.0.0.1:4433:8443"
   volumes:
    - /etc/localtime:/etc/localtime:ro
