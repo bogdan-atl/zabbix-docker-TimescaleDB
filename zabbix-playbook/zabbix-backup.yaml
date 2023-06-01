@@ -1,0 +1,32 @@
+---
+- name: Backup
+  hosts: all
+  become: true
+  tasks:
+    - name: Получить идентификаторы контейнеров с образом "timescale/timescaledb-ha:pg14-latest"
+      shell: docker ps -q --filter "ancestor=timescale/timescaledb-ha:pg14-latest"
+      register: target_container_ids
+      changed_when: false
+
+    - name: Выключить все контейнеры, кроме указанных
+      become: true
+      shell: docker stop $(docker ps -q | grep -v "{{ target_container_ids.stdout }}")
+
+    - name: Дамп базы postgresql
+      become: true
+      shell: docker exec -i {{ target_container_ids.stdout }} pg_dump -U zabbix -Fc -f /tmp/zabbix_backup.dump zabbix
+      changed_when: false
+
+    - name: Копирование базы данных из контейнера
+      become: true
+      shell: docker cp {{ target_container_ids.stdout }}:/tmp/zabbix_backup.dump  ~/zabbix-docker/
+      changed_when: false
+
+    - name: Копирование файла с сервера
+      synchronize:
+        src: /root/zabbix-docker/zabbix_backup.dump
+        dest: ./zabbix_backup.dump
+        mode: pull
+
+    - name: Перезапуск Docker Compose
+      command: docker-compose -f ~/zabbix-docker-TimescaleDB/docker-compose_v3_alpine_pgsql_latest.yaml restart

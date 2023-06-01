@@ -1,0 +1,5 @@
+DROP DATABASE zabbix;
+CREATE DATABASE zabbix;
+\c zabbix
+CREATE EXTENSION IF NOT EXISTS timescaledb;
+SELECT timescaledb_pre_restore();
