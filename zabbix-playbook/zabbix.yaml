@@ -157,19 +157,9 @@
       shell: docker cp ~/zabbix-docker/comands.sql {{ target_container_ids.stdout }}:/tmp/comands.sql
       changed_when: false
 
-    - name: Подготовка Postgresql
+    - name: Подготовка Postgresql и ВОССТАНОВЛЕНИЕ
       become: true
       shell: docker exec -i {{ target_container_ids.stdout }} psql -U zabbix -d postgres -f /tmp/comands.sql
-      changed_when: false
-
-    - name: ВОССТАНОВЛЕНИЕ
-      become: true
-      shell: docker exec -i {{ target_container_ids.stdout }} pg_restore -U zabbix -d zabbix -1 -v -Fc /tmp/zabbix_backup.dump
-      changed_when: false
-
-    - name: Подготовка базы Zabbix
-      become: true
-      shell: docker exec -i {{ target_container_ids.stdout }} psql -U zabbix -d postgres -c "SELECT timescaledb_post_restore();"
       changed_when: false
 
     - name: Изменение конфигурации Postgresql
@@ -179,3 +169,12 @@
 
     - name: Перезапуск Docker Compose
       command: docker-compose -f ~/zabbix-docker/docker-compose_v3_alpine_pgsql_latest.yaml restart
+
+
+    - name: Копирование файла конфигурации node-exporter
+      template:
+        src: templates/node-exporter.yaml.j2
+        dest: ~/zabbix-docker/node-exporter.yaml
+
+    - name: Запуск node-exporter
+      command: docker-compose -f ~/zabbix-docker/node-exporter.yaml up -d

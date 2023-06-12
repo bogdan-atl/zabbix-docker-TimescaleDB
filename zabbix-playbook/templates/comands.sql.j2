@@ -3,3 +3,5 @@ CREATE DATABASE zabbix;
 \c zabbix
 CREATE EXTENSION IF NOT EXISTS timescaledb;
 SELECT timescaledb_pre_restore();
+\! pg_restore -U zabbix -d zabbix -1 -v -Fc /tmp/zabbix_backup.dump
+SELECT timescaledb_post_restore();
