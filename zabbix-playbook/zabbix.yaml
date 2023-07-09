@@ -1,11 +1,13 @@
 ---
-- name: Установка Docker
+- name: Установка zabbix с подключением к серверу PPTP , восстановлением Postgresql, установкой nginx и  nodeexporter
   hosts: all
   become: true
   tasks:
     - name: Обновление списка пакетов
       apt:
         update_cache: yes
+      tags:
+        - docker
 
     - name: Установка необходимых пакетов
       apt:
@@ -14,27 +16,39 @@
           - curl
           - gnupg
         state: present
+      tags:
+        - docker
 
     - name: Создание каталога /etc/apt/keyrings
       file:
         path: /etc/apt/keyrings
         state: directory
         mode: '0755'
+      tags:
+        - docker
 
     - name: Загрузка GPG-ключа Docker
       shell: 'curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg'
+      tags:
+        - docker
 
     - name: Установка прав на файл docker.gpg
       file:
         path: /etc/apt/keyrings/docker.gpg
         mode: '0644'
+      tags:
+        - docker
 
     - name: Добавление репозитория Docker в /etc/apt/sources.list.d/docker.list
       shell: 'echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu $(. /etc/os-release && echo $VERSION_CODENAME) stable" | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null'
+      tags:
+        - docker
 
     - name: Обновление списка пакетов после добавления Docker
       apt:
         update_cache: yes
+      tags:
+        - docker
 
     - name: Установка Docker
       apt:
@@ -45,6 +59,8 @@
           - docker-buildx-plugin
           - docker-compose-plugin
         state: present
+      tags:
+        - docker
 
     - name: Загрузка последней версии Docker Compose
       get_url:
@@ -53,23 +69,31 @@
          mode: '0755'
          timeout: 60
          force: yes
+      tags:
+        - docker
 
     - name: Установка Nginx
       apt:
         name: nginx
         state: present
+      tags:
+        - nginx
 
     - name: Создание директории /etc/nginx/ssl
       file:
         path: /etc/nginx/ssl
         state: directory
         mode: '0755'
+      tags:
+        - nginx
 
     - name: Генерация SSL-сертификатов
       shell: |
         openssl genrsa -out /etc/nginx/ssl/server.key 2048
         openssl req -new -key /etc/nginx/ssl/server.key -out /etc/nginx/ssl/server.csr -subj "/CN="
         openssl x509 -req -in /etc/nginx/ssl/server.csr -signkey /etc/nginx/ssl/server.key -out /etc/nginx/ssl/server.crt -days 365
+      tags:
+        - nginx
 
     - name: Копирование конфигурационного файла Nginx
       template:
@@ -78,103 +102,169 @@
         owner: root
         group: root
         mode: '0644'
+      tags:
+        - nginx
 
     - name: Перезапуск сервиса Nginx
       systemd:
         name: nginx
         state: restarted
+      tags:
+        - nginx
 
     - name: Установка apache2-utils
       apt:
        name: apache2-utils
        state: present
+      tags:
+        - nginx
 
     - name: Создание файла .htpasswd
       shell: |
          htpasswd -b -c /etc/nginx/.htpasswd {{ nginx }} {{ pass }}
       args:
          executable: /bin/bash
-
+      tags:
+        - nginx
 
     - name: Установка pptp-linux
       apt:
        name: pptp-linux
        state: present
+      tags:
+        - vpn
 
     - name: Создание файла PPTP
       template:
         src: templates/PPTP.j2
         dest: /etc/ppp/peers/PPTP
+      tags:
+        - vpn
 
     - name: Добавление маршрута в файл ip-up
       lineinfile:
         path: /etc/ppp/ip-up
         line: "sudo ip route add 192.168.0.0/24 via 100.255.255.1 dev ppp0"
         create: yes
+      tags:
+        - vpn
 
-    - name: Запуск PPTP соединения
-      shell: pon PPTP
+    - name: Создание сервиса PPTP
+      template:
+        src: templates/ppp@.service.j2
+        dest: /etc/systemd/system/ppp@.service
+      tags:
+        - vpn
+
+    - name: reload systemd daemons
+      systemd:
+        daemon_reload: yes
+      tags:
+        - vpn
+
+    - name: Enable and start PPTP service
+      systemd:
+        name: ppp@PPTP.service
+        state: started
+        enabled: true
+      tags:
+        - vpn
 
     - name: Клонирование репозитория
       git:
          repo: https://github.com/bogdan-atl/zabbix-docker-TimescaleDB.git
          dest: ~/zabbix-docker
+      tags:
+        - zabbix
 
     - name: Запуск Docker Compose
       command: docker-compose -f ~/zabbix-docker/docker-compose_v3_alpine_pgsql_latest.yaml up -d
+      tags:
+        - zabbix
 
     - name: Получить идентификаторы всех контейнеров
       shell: docker ps -aq
       register: all_container_ids
       changed_when: false
+      tags:
+        - zabbix
 
     - name: Получить идентификаторы контейнеров с образом "timescale/timescaledb-ha:pg14-latest"
       shell: docker ps -q --filter "ancestor=timescale/timescaledb-ha:pg14-latest"
       register: target_container_ids
       changed_when: false
+      tags:
+        - zabbix
 
     - name: Выключить все контейнеры, кроме указанных
       become: true
       shell: docker stop $(docker ps -q | grep -v "{{ target_container_ids.stdout }}")
+      tags:
+        - zabbix
 
     - name: Копировать файл zabbix_backup.dump
       copy:
-       src: backup/zabbix_backupTSDB25052023.dump
+       src: backup/zabbix_backup.dump
        dest: ~/zabbix-docker/zabbix_backup.dump
+      tags:
+        - zabbix
 
     - name: Копирование в контейнер zabbix_backup.dump
       become: true
       shell: docker cp ~/zabbix-docker/zabbix_backup.dump {{ target_container_ids.stdout }}:/tmp/zabbix_backup.dump
       changed_when: false
+      tags:
+        - zabbix
 
     - name: Копирование файла конфигурации postgresql
       template:
         src: templates/comands.sql.j2
         dest: ~/zabbix-docker/comands.sql
+      tags:
+        - zabbix
 
     - name: Копирование в контейнер файл конфигурации
       become: true
       shell: docker cp ~/zabbix-docker/comands.sql {{ target_container_ids.stdout }}:/tmp/comands.sql
       changed_when: false
+      tags:
+        - zabbix
 
     - name: Подготовка Postgresql и ВОССТАНОВЛЕНИЕ
       become: true
       shell: docker exec -i {{ target_container_ids.stdout }} psql -U zabbix -d postgres -f /tmp/comands.sql
       changed_when: false
+      tags:
+        - zabbix
 
     - name: Изменение конфигурации Postgresql
       become: true
       shell: docker exec -i {{ target_container_ids.stdout }} sed -i 's/^max_connections =.*/max_connections = 150/' /home/postgres/pgdata/data/postgresql.conf
       changed_when: false
+      tags:
+        - zabbix
 
     - name: Перезапуск Docker Compose
       command: docker-compose -f ~/zabbix-docker/docker-compose_v3_alpine_pgsql_latest.yaml restart
-
+      tags:
+        - zabbix
 
     - name: Копирование файла конфигурации node-exporter
       template:
         src: templates/node-exporter.yaml.j2
         dest: ~/zabbix-docker/node-exporter.yaml
+      tags:
+        - exporter
 
     - name: Запуск node-exporter
       command: docker-compose -f ~/zabbix-docker/node-exporter.yaml up -d
+      tags:
+        - exporter
+
+    - name: Add cron task docker-compose
+      cron:
+        name: "Docker Compose @reboot"
+        special_time: reboot
+        job: "docker-compose -f ~/zabbix-docker/docker-compose_v3_alpine_pgsql_latest.yaml up -d"
+      tags:
+        - cron

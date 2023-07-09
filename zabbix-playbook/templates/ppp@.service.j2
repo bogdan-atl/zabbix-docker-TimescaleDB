@@ -1,0 +1,10 @@
+[Unit]
+Description=PPTP link to %I
+After=network.target
+[Service]
+Type=forking
+ExecStart=/usr/bin/pon %I
+ExecStop=/usr/bin/poff %I
+ExecReload=/usr/bin/poff -r %I
+[Install]
+WantedBy=multi-user.target
