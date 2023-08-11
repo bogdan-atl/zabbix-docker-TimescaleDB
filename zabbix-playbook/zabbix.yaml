@@ -6,61 +6,80 @@
     - name: Обновление списка пакетов
       apt:
         update_cache: yes
-      tags:
-        - docker
 
     - name: Установка необходимых пакетов
       apt:
-        name:
-          - ca-certificates
-          - curl
-          - gnupg
+        name: "{{ item }}"
         state: present
-      tags:
-        - docker
+      loop:
+        - software-properties-common
+        - apt-transport-https
+        - ca-certificates
+        - curl
+        - gnupg
+        - jq
+        - git
 
     - name: Создание каталога /etc/apt/keyrings
       file:
         path: /etc/apt/keyrings
         state: directory
         mode: '0755'
-      tags:
-        - docker
 
-    - name: Загрузка GPG-ключа Docker
-      shell: 'curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg'
-      tags:
-        - docker
+    - name: Создание каталога /etc/apt/sources.list.d
+      file:
+        path: /etc/apt/sources.list.d
+        state: directory
+        mode: '0755'
+
+    - name: Check if Docker GPG key
+      stat:
+        path: /etc/apt/trusted.gpg.d/docker.gpg
+      register: gpg_key_file
+
+    - name: Check if Docker GPG keyring
+      stat:
+        path: /usr/share/keyrings/docker-archive-keyring.gpg
+      register: gpg_key_key
+
+    - name: Check if Docker GPG keyring 2
+      stat:
+        path: /usr/share/keyrings/docker-archive-keyring.gpg
+      register: gpg_key_key2
+
+    - name: Add Docker GPG key
+      shell: 'curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /etc/apt/trusted.gpg.d/docker.gpg'
+      when: not gpg_key_file.stat.exists
+
+    - name: Add docker GPG keyrings
+      shell: 'curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /usr/share/keyrings/docker-archive-keyring.gpg'
+      when: not gpg_key_key.stat.exists
 
     - name: Установка прав на файл docker.gpg
       file:
-        path: /etc/apt/keyrings/docker.gpg
+        path: /etc/apt/trusted.gpg.d/docker.gpg
         mode: '0644'
-      tags:
-        - docker
+      when: not gpg_key_key.stat.exists
+
 
     - name: Добавление репозитория Docker в /etc/apt/sources.list.d/docker.list
-      shell: 'echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu $(. /etc/os-release && echo $VERSION_CODENAME) stable" | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null'
-      tags:
-        - docker
+      shell: 'echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/docker-archive-keyring.gpg] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable" | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null'
+      when: not gpg_key_key2.stat.exists
 
     - name: Обновление списка пакетов после добавления Docker
       apt:
         update_cache: yes
-      tags:
-        - docker
 
     - name: Установка Docker
       apt:
-        name:
-          - docker-ce
-          - docker-ce-cli
-          - containerd.io
-          - docker-buildx-plugin
-          - docker-compose-plugin
+        name: "{{ item }}"
         state: present
-      tags:
-        - docker
+      loop:
+        - docker-ce
+        - docker-ce-cli
+        - containerd.io
+        - docker-buildx-plugin
+        - docker-compose-plugin
 
     - name: Загрузка последней версии Docker Compose
       get_url:
